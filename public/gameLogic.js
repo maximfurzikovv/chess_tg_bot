@@ -1,17 +1,17 @@
-var board = null;
+let board = null;
 let game = new Chess();
 
 // Цвета для подсветки клеток
-var whiteSquareGrey = '#a9a9a9';
-var blackSquareGrey = '#696969';
+const whiteSquareGrey = '#a9a9a9';
+const blackSquareGrey = '#696969';
 
 function removeGreySquares() {
     $('#board .square-55d63').css('background', '');
 }
 
 function greySquare(square) {
-    var $square = $('#board .square-' + square);
-    var background = whiteSquareGrey;
+    const $square = $('#board .square-' + square);
+    let background = whiteSquareGrey;
     if ($square.hasClass('black-3c85d')) {
         background = blackSquareGrey;
     }
@@ -35,26 +35,41 @@ $(document).ready(function () {
         onSnapEnd: onSnapEnd
     });
 
-    // let playerColor = null;
-    // socket.on('playerColor', function (color) {
-    //     playerColor = color;
-    //     if (playerColor === 'b') {
-    //         board.orientation('black');
-    //     }
-    // });
+    // Получение информации о цвете игрока
+    let playerColor = null;
+    socket.on('playerColor', function (color) {
+        playerColor = color;
+        if (playerColor === 'b') {
+            board.orientation('black');
+        }
+    });
+
     // Обновление доски при получении хода с сервера
     socket.on('updateBoard', function (fen) {
         game.load(fen);
         board.position(fen);
         updateStatus();
     });
+    // Обработка обновления истории ходов от сервера
+    socket.on('updateHistory', function (history) {
+        renderMoveHistory(history); // Обновление истории ходов на стороне клиента
+    });
+
     // Функция для обработки начала перетаскивания фигуры
     function onDragStart(source, piece, position, orientation) {
 
+        // Проверка, если цвет игрока не совпадает с его возможным ходом
+        if ((game.turn() === 'w' && playerColor !== 'w') ||
+            (game.turn() === 'b' && playerColor !== 'b')) {
+            return false; // Запрет на перетаскивание
+        }
+
+        // Запрет на перетаскивание фигур другого цвета
         if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
             (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
             return false;
         }
+
         if (game.game_over()) return false;
 
 
@@ -85,8 +100,13 @@ $(document).ready(function () {
 
     // Обработка наведения мыши на клетку
     function onMouseoverSquare(square, piece) {
+        // Проверка: если игрок — белый, подсвечивать только для белых фигур, и наоборот
+        if ((playerColor === 'w' && piece && piece.search(/^b/) !== -1) ||
+            (playerColor === 'b' && piece && piece.search(/^w/) !== -1)) {
+            return; // Не подсвечивать клетки для фигур соперника
+        }
 
-        var moves = game.moves({
+        const moves = game.moves({
             square: square,
             verbose: true
         });
@@ -95,7 +115,7 @@ $(document).ready(function () {
 
         greySquare(square);
 
-        for (var i = 0; i < moves.length; i++) {
+        for (let i = 0; i < moves.length; i++) {
             // Проверяем, является ли ход взятием
             if (moves[i].flags.includes('c')) {
                 // Подсветка для взятия может быть другой
@@ -133,27 +153,30 @@ $(document).ready(function () {
 
     // Отображение истории ходов
     function renderMoveHistory(moves) {
-        var historyElement = $('#move-history');
+        const historyElement = $('#move-history');
         historyElement.empty();
+        // Ограничиваем количество отображаемых ходов последними 10
+        const start = Math.max(0, moves.length - 10);
+        const recentMoves = moves.slice(start);
 
-        var movesText = '';
-        var formattedMoves = [];
+        const formattedMoves = [];
+        for (let i = 0; i < recentMoves.length; i++) {
+            const moveIndex = start + i;
+            const isWhiteMove = moveIndex % 2 === 0;
 
-        for (var i = 0; i < moves.length; i++) {
-            var moveColor = (i % 2 === 0) ? 'white-move' : 'black-move';
-            var currentMove = moves[i];
+            const moveColor = isWhiteMove ? 'white-move' : 'black-move';
+            let currentMove = recentMoves[i];
 
             if (currentMove.includes('x')) {
                 currentMove += ' - ВЗЯТИЕ';
             }
-
-            formattedMoves.push('<li class="' + moveColor + '">');
-            if (i % 2 === 0) {
-                formattedMoves.push('White - ' + currentMove);
+            if (isWhiteMove) {
+                // Начало новой записи с номером хода только для белых
+                formattedMoves.push(`<li class="${moveColor}">. White - ${currentMove}</li>`);
             } else {
-                formattedMoves.push('Black - ' + currentMove);
+                // Продолжение записи для черных ходов
+                formattedMoves.push(`<li class="${moveColor}">. Black - ${currentMove}</li>`);
             }
-            formattedMoves.push('</li>');
         }
 
         historyElement.html(formattedMoves.join(''));
@@ -178,6 +201,7 @@ $(document).ready(function () {
         board.position(fen); // Обновление отображения доски
         console.log('Обновленное состояние доски:', fen);
         updateStatus();
+        renderMoveHistory(game.history());
     });
 
     socket.emit('joinGame', 'game1');
