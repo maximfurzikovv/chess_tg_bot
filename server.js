@@ -66,6 +66,7 @@ io.on('connection', (socket) => {
             }
 
             io.to(gameId).emit('updateBoard', game.game.fen()); // Отправка новое состояние игры
+            io.to(gameId).emit('updateHistory', game.game.history()); // Отправка истории ходов
             console.log('Новое состояние доски отправлено:', game.game.fen());
         }
     });
