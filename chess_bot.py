@@ -3,11 +3,14 @@ from telegram import Update
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import chess
+from dotenv import load_dotenv
+import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+load_dotenv()
 # Шахматная доска
 board = chess.Board()
 
@@ -50,7 +53,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 # Основная функция
 def main() -> None:
-    application = ApplicationBuilder().token("7349994218:AAH4_eqS0g3dVQUNLwSY579NS4uqs8hzn0M").build()
+    token = os.getenv("TELEGRAM_TOKEN")
+
+
+    application = ApplicationBuilder().token(token).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("play", play))
