@@ -1,17 +1,14 @@
-// Объявление переменных для доски и игры
 var board = null;
-let game = new Chess(); // Создание экземпляра объекта игры с использованием chess.js
+let game = new Chess();
 
 // Цвета для подсветки клеток
 var whiteSquareGrey = '#a9a9a9';
 var blackSquareGrey = '#696969';
 
-// Функция для удаления подсветки клеток
 function removeGreySquares() {
     $('#board .square-55d63').css('background', '');
 }
 
-// Функция для подсветки клетки
 function greySquare(square) {
     var $square = $('#board .square-' + square);
     var background = whiteSquareGrey;
@@ -25,56 +22,79 @@ function greySquare(square) {
 $(document).ready(function () {
     console.log('DOM загружен');
 
+    // Инициализация шахматной доски
+    board = ChessBoard('board', {
+        draggable: true,
+        dropOffBoard: 'trash',
+        sparePieces: true,
+        orientation: 'white',
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onMouseoverSquare: onMouseoverSquare,
+        onMouseoutSquare: onMouseoutSquare,
+        onSnapEnd: onSnapEnd
+    });
+
+    // let playerColor = null;
+    // socket.on('playerColor', function (color) {
+    //     playerColor = color;
+    //     if (playerColor === 'b') {
+    //         board.orientation('black');
+    //     }
+    // });
+    // Обновление доски при получении хода с сервера
+    socket.on('updateBoard', function (fen) {
+        game.load(fen);
+        board.position(fen);
+        updateStatus();
+    });
     // Функция для обработки начала перетаскивания фигуры
     function onDragStart(source, piece, position, orientation) {
-        // Запрет на перетаскивание, если игра окончена
-        if (game.game_over()) return false;
 
-        // Разрешить ходить только фигурам текущего игрока
         if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
             (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
             return false;
         }
+        if (game.game_over()) return false;
+
+
     }
 
     // Функция для обработки хода
     function onDrop(source, target) {
         removeGreySquares();
 
-        // Сделать ход в игре
         let move = game.move({
             from: source,
             to: target,
-            promotion: 'q' // Всегда превращать пешку в ферзя (упрощение)
+            promotion: 'q'
         });
 
         // Если ход некорректный, вернуть фигуру на место
         if (move === null) return 'snapback';
+        console.log('Ход сделан:', move);
 
+        sendMove(move);
         updateStatus(); // Обновить статус игры
         renderMoveHistory(game.history());
     }
 
-    // Обновление позиции доски после завершения хода
     function onSnapEnd() {
         board.position(game.fen());
     }
 
     // Обработка наведения мыши на клетку
     function onMouseoverSquare(square, piece) {
-        // Получить список всех возможных ходов для данной клетки
+
         var moves = game.moves({
             square: square,
             verbose: true
         });
 
-        // Если нет возможных ходов, выйти
         if (moves.length === 0) return;
 
-        // Подсветить клетку, на которую навели мышь
         greySquare(square);
 
-        // Подсветить возможные ходы, включая взятие фигур
         for (var i = 0; i < moves.length; i++) {
             // Проверяем, является ли ход взятием
             if (moves[i].flags.includes('c')) {
@@ -86,7 +106,6 @@ $(document).ready(function () {
         }
     }
 
-    // Обработка ухода мыши с клетки
     function onMouseoutSquare(square, piece) {
         removeGreySquares();
     }
@@ -107,7 +126,7 @@ $(document).ready(function () {
                 status += ', ' + moveColor + ' is in check';
             }
         }
-
+        console.log('Текущий статус:', status);
         $('#status').text(status);
 
     }
@@ -121,11 +140,9 @@ $(document).ready(function () {
         var formattedMoves = [];
 
         for (var i = 0; i < moves.length; i++) {
-            // Определяем цвет игрока и форматируем ход
             var moveColor = (i % 2 === 0) ? 'white-move' : 'black-move';
             var currentMove = moves[i];
 
-            // Если это взятие, добавляем подсветку и формат
             if (currentMove.includes('x')) {
                 currentMove += ' - ВЗЯТИЕ';
             }
@@ -142,37 +159,26 @@ $(document).ready(function () {
         historyElement.html(formattedMoves.join(''));
     }
 
-    // Обработчик для кнопки "Начать новую игру"
+    // Обработчик для кнопки "Начать игру"
     $('#startBtn').on('click', function () {
         console.log('Кнопка "Начать новую игру" нажата');
         $('#interface').hide();
         $('#board-container').show();
         $('#history-container').show();
-        $('#clearBtn').show();
-
-        // Инициализация шахматной доски
-        board = ChessBoard('board', {
-            draggable: true,
-            position: 'start',
-            onDragStart: onDragStart,
-            onDrop: onDrop,
-            onMouseoverSquare: onMouseoverSquare,
-            onMouseoutSquare: onMouseoutSquare,
-            onSnapEnd: onSnapEnd
-        });
+        $('#status').show();
 
         game.reset(); // Сбросить игру
-        updateStatus(); // Обновить статус
+        board.position('start');
+        updateStatus();
     });
 
-    // Обработчик для кнопки "Очистить доску"
-    $('#clearBtn').on('click', function () {
-        console.log('Кнопка "Очистить доску" нажата');
-        if (board) {
-            game.reset();
-            board.start();
-            updateStatus();
-            console.log('Шахматная доска очищена');
-        }
+    // Обработка хода от сервера
+    socket.on('updateBoard', function (fen) {
+        game.load(fen); // Новое состояние игры
+        board.position(fen); // Обновление отображения доски
+        console.log('Обновленное состояние доски:', fen);
+        updateStatus();
     });
+
+    socket.emit('joinGame', 'game1');
 });
