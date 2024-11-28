@@ -6,7 +6,11 @@ const socket = io('https://0d90-91-216-66-229.ngrok-free.app/');
 const whiteSquareGrey = '#a9a9a9';
 const blackSquareGrey = '#696969';
 const urlParams = new URLSearchParams(window.location.search);
-const roomCode = urlParams.get('roomCode');
+let roomCode = urlParams.get('roomCode');
+
+if (roomCode) {
+    roomCode = roomCode.split('/')[0];
+}
 function removeGreySquares() {
     $('#board .square-55d63').css('background', '');
 }
@@ -42,16 +46,12 @@ $(document).ready(function () {
 
     // Получение информации о цвете игрока
     let playerColor = null;
-    // socket.on('connect', () => {
-    //     console.log('Подключено к серверу');
-    //     socket.emit('joinGame', 'game1'); // Подключение к игре
-    // });
-
+    
     socket.on('playerColor', function (color) {
         playerColor = color;
         console.log(`Игрок получил цвет: ${color}`);
 
-        // В зависимости от цвета, меняется ориентация доски
+        // В зависимости от цвета, меняется ориентацию доски
         if (playerColor === 'b') {
             board.orientation('black');
         } else {
