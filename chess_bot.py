@@ -5,7 +5,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import chess
 from dotenv import load_dotenv
 import os
-from DB import create_room_in_db, join_room_in_db, end_game_in_db, get_room_info, get_players_in_room
+from DB import create_room_in_db, join_room_in_db, end_game_in_db, get_room_info, get_players_in_room, create_new_room
 import random
 import string
 
@@ -40,14 +40,14 @@ async def create_room(update, context):
 
     # Сохранение в базу данных
     create_room_in_db(room_code)
-    # Присваиваие комнаты текущему пользователю
-    join_room_in_db(user_id, room_code)
 
-    unique_url = f"{WEB_APP_URL}/room/{room_code}"
+    # Присваиваие комнаты текущему пользователю
+    join_room_in_db(user_id, room_code,1)
+
+    unique_url = f"{WEB_APP_URL}/?roomCode={room_code}/webapp"
     await update.message.reply_text(f"Комната с кодом {room_code} создана!")
-    join_room_in_db(user_id, room_code)
     keyboard = [
-        [InlineKeyboardButton("Открыть шахматы", web_app=WebAppInfo(url=f"{WEB_APP_URL}/webapp"))]
+        [InlineKeyboardButton("Открыть шахматы", web_app=WebAppInfo(url=unique_url))]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(f"Нажмите для начала игры в шахматы!", reply_markup=reply_markup)
@@ -64,13 +64,12 @@ async def handle_room_code(update, context):
     room_code = update.message.text.strip()
 
     room = get_room_info(room_code)
+    join_room_in_db(user_id, room_code, 2)
     if room:
         players = get_players_in_room(room_code)
         if len(players) < 2:
-            join_room_in_db(user_id, room_code)
-            await update.message.reply_text(f"Вы подключились к комнате {room_code}!")
             keyboard = [
-                [InlineKeyboardButton("Открыть шахматы", web_app=WebAppInfo(url=f"{WEB_APP_URL}/webapp"))]
+                [InlineKeyboardButton("Открыть шахматы", web_app=WebAppInfo(url=f"{WEB_APP_URL}/?roomCode={room_code}/webapp"))]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(f"Нажмите для начала игры в шахматы!", reply_markup=reply_markup)
