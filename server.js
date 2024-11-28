@@ -11,41 +11,35 @@ const io = socket(server);
 
 const PORT = process.env.PORT || 3000;
 
-
+// Подключение к базе данных
+const db = new sqlite3.Database('chess_game.db');
 app.use(express.static(path.join(__dirname, 'public')));
 
-// app.get('/room/:roomCode', (req, res) => {
-//     const roomCode = req.params.roomCode;
-//
-//     // Получение информации о комнате из базы данных
-//     getRoomByCode(roomCode, (room) => {
-//         if (room) {
-//             console.log(`Комната найдена: ${room.room_code}`);
-//             res.sendFile(path.join(__dirname, 'public', 'index.html'));
-//         } else {
-//             console.log(`Комната не найдена: ${roomCode}`);
-//             res.status(404).send('Комната не найдена');
-//         }
-//     });
-// });
-app.get('/webapp', (req, res) => {
+app.get('/webapp?roomCode', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Функция для получения информации о комнате из базы данных
-function getRoomByCode(roomCode, callback) {
-    const db = new sqlite3.Database('database/chess_game.db');
-
-    db.get('SELECT * FROM rooms WHERE room_code = ?', [roomCode], (err, row) => {
+function getGameState(gameId, callback) {
+    db.get('SELECT board_state FROM game_state WHERE room_code = ?', [gameId], (err, row) => {
         if (err) {
-            console.error('Ошибка при получении данных:', err);
+            console.error('Ошибка при извлечении состояния игры:', err);
             callback(null);
         } else {
-            callback(row);
+            callback(row ? row.board_state : null);
         }
     });
+}
 
-    db.close();
+function updateGameState(gameId, boardState) {
+    db.run(
+        'UPDATE game_state SET board_state = ?, game_in_progress = ? WHERE room_code = ?',
+        [boardState, 1, gameId],
+        (err) => {
+            if (err) console.error('Ошибка при обновлении состояния игры:', err);
+
+            else console.log('Состояние игры обновлено в базе данных.');
+        }
+    );
 }
 
 const games = {};
@@ -62,22 +56,37 @@ io.on('connection', (socket) => {
                 boardState: null,
                 playerColors: {}
             };
-            games[gameId].game.load('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+            // Получение информации о комнате из базы данных
+            getGameState(gameId, (boardState) => {
+                if (boardState) {
+                    console.log(`Комната с кодом ${gameId} найдена. Состояние доски загружено.`);
+                    const game = games[gameId] || {game: new Chess()};
+                    game.boardState = boardState;
+                    game.game.load(game.boardState);
+
+                    io.to(gameId).emit('updateBoard', game.game.fen());
+                } else {
+                    console.log(`Комната с кодом ${gameId} не найдена. Создаем новую игру.`);
+                    const newGame = new Chess();
+                    games[gameId] = {
+                        players: [],
+                        game: newGame,
+                        boardState: newGame.fen(),
+                        playerColors: {}
+                    };
+
+                    io.to(gameId).emit('updateBoard', newGame.fen());
+                }
+            });
         }
 
-        // Добавляем игрока в игру
         const game = games[gameId];
 
-        // Проверка, если игрок уже присоединился
         if (game.players.includes(socket.id)) {
             console.log('Этот игрок уже присоединился к игре.');
             return;
         }
-        // if (game.players.length === 2) {
-        //     socket.emit('error', 'Эта игра уже заполнена.');
-        //     return;
-        // }
-        // Присваивание игроку цвета в зависимости от порядка подключения
+
         if (game.players.length === 0) {
             game.playerColors[socket.id] = 'w';
             game.players.push(socket.id);
@@ -97,6 +106,7 @@ io.on('connection', (socket) => {
 
     socket.on('move', ({gameId, move}) => {
         const game = games[gameId];
+
         console.log('Received move:', move);
         if (game) {
             try {
@@ -106,8 +116,12 @@ io.on('connection', (socket) => {
                     return;
                 }
 
+                const boardState = game.game.fen();
+                updateGameState(gameId, game.game.fen());
+
                 io.to(gameId).emit('updateBoard', game.game.fen());
                 io.to(gameId).emit('updateHistory', game.game.history());
+
                 console.log('Новое состояние доски отправлено:', game.game.fen());
             } catch (error) {
                 console.error('Ошибка при выполнении хода:', error);
@@ -116,14 +130,14 @@ io.on('connection', (socket) => {
     });
 
 
-    // Обработка обновления состояния доски
+// Обработка обновления состояния доски
     socket.on('updateBoard', function (fen) {
         game.load(fen); // Новое состояние игры
         board.position(fen); // Обновление отображения доски
         updateStatus(); // Обновление статусв игры
     });
 
-    // Обработка отключения игрока
+// Обработка отключения игрока
     socket.on('disconnect', () => {
         console.log('Игрок отключен:', socket.id);
         Object.keys(games).forEach(gameId => {
@@ -134,8 +148,8 @@ io.on('connection', (socket) => {
             }
         });
     });
-});
-
+})
+;
 
 server.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
