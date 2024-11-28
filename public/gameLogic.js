@@ -1,10 +1,12 @@
 let board = null;
 let game = new Chess();
+const socket = io('https://0d90-91-216-66-229.ngrok-free.app/');
 
 // Цвета для подсветки клеток
 const whiteSquareGrey = '#a9a9a9';
 const blackSquareGrey = '#696969';
-
+const urlParams = new URLSearchParams(window.location.search);
+const roomCode = urlParams.get('roomCode');
 function removeGreySquares() {
     $('#board .square-55d63').css('background', '');
 }
@@ -35,24 +37,45 @@ $(document).ready(function () {
         onSnapEnd: onSnapEnd
     });
 
+
+    socket.on('connect_error', (err) => console.error('Ошибка подключения:', err));
+
     // Получение информации о цвете игрока
     let playerColor = null;
+    // socket.on('connect', () => {
+    //     console.log('Подключено к серверу');
+    //     socket.emit('joinGame', 'game1'); // Подключение к игре
+    // });
+
     socket.on('playerColor', function (color) {
         playerColor = color;
+        console.log(`Игрок получил цвет: ${color}`);
+
+        // В зависимости от цвета, меняется ориентация доски
         if (playerColor === 'b') {
             board.orientation('black');
+        } else {
+            board.orientation('white');
         }
     });
+    socket.on('error', function (message) {
+        alert(message);
+    });
 
-    // Обновление доски при получении хода с сервера
+// Отправка хода на сервер
+    function sendMove(move) {
+        socket.emit('move', {gameId: '', move: move});
+    }
+
     socket.on('updateBoard', function (fen) {
         game.load(fen);
         board.position(fen);
+        console.log('Доска обновлена:', fen);
         updateStatus();
     });
-    // Обработка обновления истории ходов от сервера
+
     socket.on('updateHistory', function (history) {
-        renderMoveHistory(history); // Обновление истории ходов на стороне клиента
+        renderMoveHistory(history);
     });
 
     // Функция для обработки начала перетаскивания фигуры
@@ -71,8 +94,6 @@ $(document).ready(function () {
         }
 
         if (game.game_over()) return false;
-
-
     }
 
     // Функция для обработки хода
@@ -85,11 +106,11 @@ $(document).ready(function () {
             promotion: 'q'
         });
 
-        // Если ход некорректный, вернуть фигуру на место
         if (move === null) return 'snapback';
         console.log('Ход сделан:', move);
 
         sendMove(move);
+        socket.emit('move', {gameId: roomCode, move});
         updateStatus(); // Обновить статус игры
         renderMoveHistory(game.history());
     }
@@ -100,10 +121,9 @@ $(document).ready(function () {
 
     // Обработка наведения мыши на клетку
     function onMouseoverSquare(square, piece) {
-        // Проверка: если игрок — белый, подсвечивать только для белых фигур, и наоборот
         if ((playerColor === 'w' && piece && piece.search(/^b/) !== -1) ||
             (playerColor === 'b' && piece && piece.search(/^w/) !== -1)) {
-            return; // Не подсвечивать клетки для фигур соперника
+            return;
         }
 
         const moves = game.moves({
@@ -116,9 +136,7 @@ $(document).ready(function () {
         greySquare(square);
 
         for (let i = 0; i < moves.length; i++) {
-            // Проверяем, является ли ход взятием
             if (moves[i].flags.includes('c')) {
-                // Подсветка для взятия может быть другой
                 $('#board .square-' + moves[i].to).css('background', 'red');
             } else {
                 greySquare(moves[i].to);
@@ -155,7 +173,6 @@ $(document).ready(function () {
     function renderMoveHistory(moves) {
         const historyElement = $('#move-history');
         historyElement.empty();
-        // Ограничиваем количество отображаемых ходов последними 10
         const start = Math.max(0, moves.length - 10);
         const recentMoves = moves.slice(start);
 
@@ -171,10 +188,8 @@ $(document).ready(function () {
                 currentMove += ' - ВЗЯТИЕ';
             }
             if (isWhiteMove) {
-                // Начало новой записи с номером хода только для белых
                 formattedMoves.push(`<li class="${moveColor}">. White - ${currentMove}</li>`);
             } else {
-                // Продолжение записи для черных ходов
                 formattedMoves.push(`<li class="${moveColor}">. Black - ${currentMove}</li>`);
             }
         }
@@ -193,6 +208,9 @@ $(document).ready(function () {
         game.reset(); // Сбросить игру
         board.position('start');
         updateStatus();
+
+        socket.emit('newGame');
+        socket.emit('joinGame', roomCode);
     });
 
     // Обработка хода от сервера
@@ -204,5 +222,5 @@ $(document).ready(function () {
         renderMoveHistory(game.history());
     });
 
-    socket.emit('joinGame', 'game1');
+    socket.emit('joinGame', roomCode);
 });
