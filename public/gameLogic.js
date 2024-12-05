@@ -1,6 +1,6 @@
 let board = null;
 let game = new Chess();
-const socket = io('https://0d90-91-216-66-229.ngrok-free.app/');
+const socket = io('https://b945-51-159-210-136.ngrok-free.app');
 
 // Цвета для подсветки клеток
 const whiteSquareGrey = '#a9a9a9';
@@ -11,6 +11,7 @@ let roomCode = urlParams.get('roomCode');
 if (roomCode) {
     roomCode = roomCode.split('/')[0];
 }
+
 function removeGreySquares() {
     $('#board .square-55d63').css('background', '');
 }
@@ -46,7 +47,7 @@ $(document).ready(function () {
 
     // Получение информации о цвете игрока
     let playerColor = null;
-    
+    let gameReady = false;
     socket.on('playerColor', function (color) {
         playerColor = color;
         console.log(`Игрок получил цвет: ${color}`);
@@ -58,13 +59,20 @@ $(document).ready(function () {
             board.orientation('white');
         }
     });
+
+    socket.on('gameReady', function () {
+        $('#startBtn').prop('disabled', false);
+        $('#startBtn').text('Начать игру');
+        console.log('Игра готова, оба игрока подключены.');
+    });
+    gameReady = true;
     socket.on('error', function (message) {
         alert(message);
     });
 
 // Отправка хода на сервер
     function sendMove(move) {
-        socket.emit('move', {gameId: '', move: move});
+        socket.emit('move', {gameId: roomCode, move: move});
     }
 
     socket.on('updateBoard', function (fen) {
@@ -173,7 +181,7 @@ $(document).ready(function () {
     function renderMoveHistory(moves) {
         const historyElement = $('#move-history');
         historyElement.empty();
-        const start = Math.max(0, moves.length - 10);
+        const start = Math.max(0, moves.length - 5);
         const recentMoves = moves.slice(start);
 
         const formattedMoves = [];
@@ -200,7 +208,13 @@ $(document).ready(function () {
     // Обработчик для кнопки "Начать игру"
     $('#startBtn').on('click', function () {
         console.log('Кнопка "Начать новую игру" нажата');
+        if (!gameReady) {
+            alert('Ожидайте подключения второго игрока!');
+            return;
+        }
+
         $('#interface').hide();
+        $('#game-container').show();
         $('#board-container').show();
         $('#history-container').show();
         $('#status').show();
@@ -209,10 +223,21 @@ $(document).ready(function () {
         board.position('start');
         updateStatus();
 
+        $('#toggle-history-btn').show();
         socket.emit('newGame');
         socket.emit('joinGame', roomCode);
     });
 
+
+    document.getElementById('toggle-history-btn').addEventListener('click', function () {
+        const historyPanel = document.getElementById('history-container');
+        historyPanel.classList.toggle('open');
+        $('#history-container').show()// Переключаем класс, который открывает или закрывает панель
+    });
+
+    $('#close-history-btn').on('click', function () {
+        $('#history-container').removeClass('open'); // Скрыть панель
+    });
     // Обработка хода от сервера
     socket.on('updateBoard', function (fen) {
         game.load(fen); // Новое состояние игры
