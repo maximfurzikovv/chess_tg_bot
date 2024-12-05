@@ -134,7 +134,7 @@ io.on('connection', (socket) => {
                 io.to(gameCode).emit('updateBoard', newGame.fen());
             }
         }
-
+        const currentGame = games[gameId];
         const game = games[gameId];
 
         if (game.players.includes(socket.id)) {
@@ -155,8 +155,11 @@ io.on('connection', (socket) => {
             socket.emit('playerColor', 'b'); // Отправка информации о цвете
             console.log(`Игрок ${socket.id} присоединился к игре ${gameId} за черных.`);
         }
-        
+
         io.to(gameId).emit('updateBoard', game.game.fen());
+        if (currentGame.players.length === 2) {
+            io.to(gameId).emit('gameReady');
+        }
     });
 
     socket.on('move', async ({gameId, move}) => {
