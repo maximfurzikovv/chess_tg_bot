@@ -1,190 +1,102 @@
-import sqlite3
+from sqlalchemy import create_engine, Column, String, Integer, Boolean, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import relationship
 import chess
 
-DB_PATH = "chess_game.db"
+Base = declarative_base()
+
+# Модели для базы данных
+class Room(Base):
+    __tablename__ = 'rooms'
+    room_code = Column(String, primary_key=True)
+    player_1 = Column(Integer, nullable=True)
+    player_2 = Column(Integer, nullable=True)
+
+
+class GameState(Base):
+    __tablename__ = 'game_state'
+    game_code = Column(String, primary_key=True)
+    board_state = Column(String, nullable=False)
+    game_in_progress = Column(Boolean, default=False)
+    id_room_code = Column(String, ForeignKey('rooms.room_code'), nullable=False)
+    # Связь с таблицей Room
+    room = relationship("Room", backref="game_states")
+
+
+# Настройка подключения к базе данных
+DATABASE_URL = "sqlite:///chess_game.db"
+engine = create_engine(DATABASE_URL, echo=True)
+
+Base.metadata.create_all(engine)
+
+Session = sessionmaker(bind=engine)
+session = Session()
+
 
 def create_room_in_db(room_code):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    try:
-        # Существует ли уже комната с таким кодом
-        cursor.execute("SELECT * FROM rooms WHERE room_code = ?", (room_code,))
-        initial_board_state = chess.Board().fen()
-        cursor.execute("INSERT INTO game_state (room_code, board_state, game_in_progress) VALUES (?, ?, ?)",
-                       (room_code, initial_board_state, False))
-        if cursor.fetchone() is None:
-            cursor.execute(
-                "INSERT INTO rooms (room_code, game_in_progress) VALUES (?, ?)",
-                (room_code, False)
-            )
-            conn.commit()
-            print(f"Room {room_code} created successfully.")
-        else:
-            print(f"Room {room_code} already exists.")
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-    finally:
-        conn.close()
+    room = Room(room_code=room_code)
+
+    # Проверка, существует ли уже комната с таким кодом
+    existing_room = session.query(Room).filter_by(room_code=room_code).first()
+    if existing_room:
+        print(f"Комната {room_code} уже существует.")
+        return
+
+    session.add(room)
+    session.commit()
+    print(f"Комната {room_code} создана.")
 
 
 def join_room_in_db(user_id, room_code, number):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    room = session.query(Room).filter_by(room_code=room_code).first()
+    if not room:
+        print(f"Комната с кодом {room_code} не найдена.")
+        return
 
-    try:
-        # Существует ли комната
-        cursor.execute("SELECT player_1, player_2 FROM rooms WHERE room_code = ?", (room_code,))
-        room = cursor.fetchone()
+        # Проверка, что игрок не записался в обе ячейки
+    if room.player_1 == user_id or room.player_2 == user_id:
+        print(f"Игрок {user_id} уже присоединился к комнате {room_code}.")
+        return
 
-        if room is None:
-            print(f"Комната {room_code} не найдена.")
-            return
+    if number == 1 and room.player_1 is None:
+        room.player_1 = user_id
+    elif number == 2 and room.player_2 is None:
+        room.player_2 = user_id
+    else:
+        print(f"Комната {room_code} уже полна.")
+        return
 
-        player_1, player_2 = room
+    session.commit()
+    print(f"Игрок {user_id} подключился к комнате {room_code} как player_{number}.")
 
-        if number == 1 and player_1 is None:  # Если первый слот свободен
-            cursor.execute("UPDATE rooms SET player_1 = ? WHERE room_code = ?", (user_id, room_code))
-            conn.commit()
-            print(f"Игрок {user_id} записан в player_1 комнаты {room_code}.")
+    # Проверка, если оба игрока присоединились, то начинаем игру
+    if room.player_1 is not None and room.player_2 is not None:
+        start_game_in_db(room_code)
 
-        elif number == 2 and player_2 is None:  # Если второй слот свободен
-            cursor.execute("UPDATE rooms SET player_2 = ? WHERE room_code = ?", (user_id, room_code))
-            conn.commit()
-            print(f"Игрок {user_id} записан в player_2 комнаты {room_code}.")
-        else:
-            print(f"Комната {room_code} уже полна.")
-        cursor.execute("SELECT player_1, player_2 FROM rooms WHERE room_code = ?", (room_code,))
-        updated_room = cursor.fetchone()
-        if updated_room[0] and updated_room[1]:  # Оба игрока присутствуют
-            start_game_in_db(room_code)
-    except sqlite3.Error as e:
-        print(f"Ошибка базы данных: {e}")
-    finally:
-        conn.close()
+
+def start_game_in_db(room_code):
+    room = session.query(Room).filter_by(room_code=room_code).first()
+    if room:
+        room.game_in_progress = True
+        session.commit()
+        print(f"Игра в комнате {room_code} началась.")
 
 
 def end_game_in_db(room_code):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute("UPDATE game_state SET game_in_progress = ? WHERE room_code = ?", (False, room_code))
-        conn.commit()
+    game_state = session.query(GameState).filter_by(room_code=room_code).first()
+    if game_state:
+        game_state.game_in_progress = False
+        session.commit()
         print(f"Игра в комнате {room_code} завершена.")
-    except sqlite3.Error as e:
-        print(f"Ошибка базы данных: {e}")
-    finally:
-        conn.close()
 
 
 def get_room_info(room_code):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM rooms WHERE room_code = ?", (room_code,))
-    room = cursor.fetchone()
-    conn.close()
-    return room
+    return session.query(Room).filter_by(room_code=room_code).first()
+
 
 def get_players_in_room(room_code):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT user_id FROM players WHERE room_code = ?", (room_code,))
-        players = cursor.fetchall()
-        return [player[0] for player in players]
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return []
-    finally:
-        conn.close()
-
-def delete_room_from_db(room_code):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute("DELETE FROM rooms WHERE room_code = ?", (room_code,))
-        conn.commit()
-        print(f"Комната {room_code} удалена из базы данных.")
-    except sqlite3.Error as e:
-        print(f"Ошибка базы данных: {e}")
-    finally:
-        conn.close()
-
-
-
-def check_rooms():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM rooms")
-    rows = cursor.fetchall()
-
-    for row in rows:
-        print(row)
-
-    conn.close()
-
-def start_game_in_db(room_code):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute("SELECT player_1, player_2 FROM rooms WHERE room_code = ?", (room_code,))
-        room = cursor.fetchone()
-
-        if room is None:
-            print(f"Комната {room_code} не найдена.")
-            return
-
-        player_1, player_2 = room
-
-        if player_1 is None or player_2 is None:
-            print(f"В комнате {room_code} недостаточно игроков для начала игры.")
-            return
-
-        cursor.execute("UPDATE rooms SET game_in_progress = ? WHERE room_code = ?", (True, room_code))
-        conn.commit()
-        print(f"Игра в комнате {room_code} началась.")
-    except sqlite3.Error as e:
-        print(f"Ошибка базы данных: {e}")
-    finally:
-        conn.close()
-
-def get_game_state(room_code):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute("SELECT board_state, game_in_progress FROM game_state WHERE room_code = ?", (room_code,))
-        game_state = cursor.fetchone()
-        if game_state:
-            return game_state
-        return None
-    except sqlite3.Error as e:
-        print(f"Ошибка базы данных: {e}")
-        return None
-    finally:
-        conn.close()
-
-def create_new_room(room_code):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO game_state (room_code) VALUES (?)", (room_code,))
-    conn.commit()
-    conn.close()
-
-def update_game_state(room_code, game_state):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE game_state SET game_state = ? WHERE room_code = ?", (game_state, room_code))
-    conn.commit()
-    conn.close()
-
-def get_board_state(room_code):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT board_state FROM game_state WHERE room_code = ?", (room_code,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
+    room = session.query(Room).filter_by(room_code=room_code).first()
+    if room:
+        return [room.player_1, room.player_2]
+    return []
